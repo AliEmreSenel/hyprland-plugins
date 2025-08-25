@@ -34,12 +34,14 @@ class COverview {
 
     bool          blockOverviewRendering = false;
     bool          blockDamageReporting   = false;
+    bool          fullyOpened            = false;
 
     PHLMONITORREF pMonitor;
 
   private:
     void       redrawID(int id, bool forcelowres = false);
     void       redrawAll(bool forcelowres = false);
+    void       redrawAllValid(bool forcelowres = false);
     void       onWorkspaceChange();
     void       fullRender();
 
@@ -67,6 +69,7 @@ class COverview {
 
     PHLANIMVAR<Vector2D>         size;
     PHLANIMVAR<Vector2D>         pos;
+    int                          hoveredID = -1;
 
     bool                         closing = false;
 
