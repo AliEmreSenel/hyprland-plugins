@@ -69,7 +69,68 @@ static SDispatchResult onExpoDispatcher(std::string arg) {
     if (g_pOverview->m_isSwiping)
         return {.success = false, .error = "already swiping"};
 
-    if (arg == "select") {
+static void swipeUpdate(void* self, SCallbackInfo& info, std::any param) {
+    static auto* const* PENABLE   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:enable_gesture")->getDataStaticPtr();
+    static auto* const* FINGERS   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_fingers")->getDataStaticPtr();
+    static auto* const* PPOSITIVE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_positive")->getDataStaticPtr();
+    static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance")->getDataStaticPtr();
+    auto                e         = std::any_cast<IPointer::SSwipeUpdateEvent>(param);
+
+    if (!swipeDirection) {
+        if (std::abs(e.delta.x) > std::abs(e.delta.y))
+            swipeDirection = 'h';
+        else if (std::abs(e.delta.y) > std::abs(e.delta.x))
+            swipeDirection = 'v';
+        else
+            swipeDirection = 0;
+    }
+
+    if (swipeActive || g_pOverview)
+        info.cancelled = true;
+
+    if (!**PENABLE || e.fingers != **FINGERS || swipeDirection != 'v')
+        return;
+
+    info.cancelled = true;
+    if (!swipeActive) {
+        if (g_pOverview && (**PPOSITIVE ? 1.0 : -1.0) * e.delta.y <= 0) {
+            swipeActive = true;
+        }
+
+        else if (!g_pOverview && (**PPOSITIVE ? 1.0 : -1.0) * e.delta.y > 0) {
+            renderingOverview = true;
+            g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, true);
+            renderingOverview = false;
+            gestured          = 0;
+            swipeActive       = true;
+        }
+
+        else {
+            return;
+        }
+    }
+
+    gestured += (**PPOSITIVE ? 1.0 : -1.0) * e.delta.y;
+    if (gestured <= 0.01) // plugin will crash if swipe ends at <= 0
+        gestured = 0.01;
+    g_pOverview->onSwipeUpdate(gestured);
+}
+
+static void swipeEnd(void* self, SCallbackInfo& info, std::any param) {
+    if (!g_pOverview)
+        return;
+
+    swipeActive    = false;
+    info.cancelled = true;
+
+    g_pOverview->onSwipeEnd();
+}
+
+static void onExpoDispatcher(std::string arg) {
+
+    if (swipeActive)
+        return;
+    if (arg == "select") { 
         if (g_pOverview) {
             g_pOverview->selectHoveredWorkspace();
             g_pOverview->close();
@@ -80,9 +141,10 @@ static SDispatchResult onExpoDispatcher(std::string arg) {
         if (g_pOverview)
             g_pOverview->close();
         else {
-            renderingOverview = true;
-            g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace);
-            renderingOverview = false;
+            renderingOverview        = true;
+            g_pOverview              = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace);
+            g_pOverview->fullyOpened = true;
+            renderingOverview        = false;
         }
         return {};
     }

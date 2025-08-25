@@ -1,4 +1,6 @@
 #include "overview.hpp"
+#include "src/render/OpenGL.hpp"
+#include <algorithm>
 #include <any>
 #define private public
 #include <hyprland/src/render/Renderer.hpp>
@@ -328,6 +330,13 @@ void COverview::redrawAll(bool forcelowres) {
     }
 }
 
+void COverview::redrawAllValid(bool forcelowres) {
+    for (size_t i = 0; i < (size_t)(SIDE_LENGTH * SIDE_LENGTH); ++i) {
+        if (images[i].pWorkspace)
+            redrawID(i, forcelowres);
+    }
+}
+
 void COverview::damage() {
     blockDamageReporting = true;
     g_pHyprRenderer->damageMonitor(pMonitor.lock());
@@ -358,7 +367,7 @@ void COverview::close() {
     if (closing)
         return;
 
-    const int   ID = closeOnID == -1 ? openedID : closeOnID;
+    const int   ID = closeOnID == -1 ? hoveredID : closeOnID;
 
     const auto& TILE = images[std::clamp(ID, 0, SIDE_LENGTH * SIDE_LENGTH)];
 
@@ -398,10 +407,12 @@ void COverview::close() {
 }
 
 void COverview::onPreRender() {
-    if (damageDirty) {
-        damageDirty = false;
-        redrawID(closing ? (closeOnID == -1 ? openedID : closeOnID) : openedID);
-    }
+    int hoveredX = ((lastMousePosLocal.x - pos->value().x) / size->value().x) * SIDE_LENGTH;
+    int hoveredY = ((lastMousePosLocal.y - pos->value().y) / size->value().y) * SIDE_LENGTH;
+    hoveredID    = hoveredX + hoveredY * SIDE_LENGTH;
+
+    redrawID(hoveredID, true);
+    redrawAllValid(true);
 }
 
 void COverview::onWorkspaceChange() {
@@ -439,6 +450,8 @@ void COverview::fullRender() {
     Vector2D tileSize       = (SIZE / SIDE_LENGTH);
     Vector2D tileRenderSize = (SIZE - Vector2D{GAPSIZE, GAPSIZE} * (SIDE_LENGTH - 1)) / SIDE_LENGTH;
 
+    auto     zoomFactor = (pMonitor->m_size.x / tileSize.x) - 2.0;
+
     g_pHyprOpenGL->clear(BG_COLOR.stripA());
 
     for (size_t y = 0; y < (size_t)SIDE_LENGTH; ++y) {
@@ -447,7 +460,9 @@ void COverview::fullRender() {
             texbox.scale(pMonitor->m_scale).translate(pos->value());
             texbox.round();
             CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-            g_pHyprOpenGL->renderTextureInternal(images[x + y * SIDE_LENGTH].fb.getTexture(), texbox, {.damage = &damage, .a = 1.0});
+            g_pHyprOpenGL->renderTextureWithDamage(images[x + y * SIDE_LENGTH].fb.getTexture(), texbox, damage, 1.0);
+            if (x + y * SIDE_LENGTH == hoveredID)
+                g_pHyprOpenGL->renderRect(texbox, CHyprColor{1.0, 1.0, 1.0, lerp(0.0, 0.3, std::clamp(zoomFactor, 0.0, 1.0))});
         }
     }
 }
@@ -461,26 +476,22 @@ static Vector2D lerp(const Vector2D& from, const Vector2D& to, const float perc)
 }
 
 void COverview::onSwipeUpdate(double delta) {
-    m_isSwiping = true;
-
-    if (swipeWasCommenced)
-        return;
+    //    if (swipeWasCommenced)
+    //        return;
 
     static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance")->getDataStaticPtr();
 
     const float         PERC = 1.0 - std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
 
-    Vector2D            tileSize = (pMonitor->m_size / SIDE_LENGTH);
+    const auto          focusedID = fullyOpened ? hoveredID : openedID;
+    const auto          SIZEMAX   = pMonitor->m_size * SIDE_LENGTH;
+    const auto          POSMAX    = Vector2D{focusedID % SIDE_LENGTH, focusedID / SIDE_LENGTH} * pMonitor->m_size * pMonitor->m_scale;
 
-    const auto          SIZEMAX = pMonitor->m_size * pMonitor->m_size / tileSize;
-    const auto          POSMAX =
-        (-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{openedID % SIDE_LENGTH, openedID / SIDE_LENGTH}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
-
-    const auto SIZEMIN = pMonitor->m_size;
-    const auto POSMIN  = Vector2D{0, 0};
+    const auto          SIZEMIN = pMonitor->m_size;
+    const auto          POSMIN  = Vector2D{0, 0};
 
     size->setValueAndWarp(lerp(SIZEMIN, SIZEMAX, PERC));
-    pos->setValueAndWarp(lerp(POSMIN, POSMAX, PERC));
+    pos->setValueAndWarp(lerp(POSMIN, -POSMAX, PERC));
 }
 
 void COverview::onSwipeEnd() {
@@ -497,5 +508,5 @@ void COverview::onSwipeEnd() {
     size->setCallbackOnEnd([this](WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) { redrawAll(true); });
 
     swipeWasCommenced = true;
-    m_isSwiping       = false;
+    fullyOpened       = true;
 }
