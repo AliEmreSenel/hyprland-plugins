@@ -1,7 +1,9 @@
 #include "overview.hpp"
+#include "src/plugins/PluginAPI.hpp"
 #include "src/render/OpenGL.hpp"
 #include <algorithm>
 #include <any>
+#include <hyprlang.hpp>
 #define private public
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/Compositor.hpp>
@@ -28,19 +30,15 @@ COverview::~COverview() {
     g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
 }
 
-COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_) : startedOn(startedOn_), swipe(swipe_) {
+COverview::COverview(PHLWORKSPACE startedOn_) : startedOn(startedOn_) {
     const auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
     pMonitor            = PMONITOR;
 
     static auto* const* PCOLUMNS = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:columns")->getDataStaticPtr();
-    static auto* const* PGAPS    = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:gap_size")->getDataStaticPtr();
-    static auto* const* PCOL     = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:bg_col")->getDataStaticPtr();
     static auto* const* PSKIP    = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:skip_empty")->getDataStaticPtr();
     static auto const*  PMETHOD  = (Hyprlang::STRING const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:workspace_method")->getDataStaticPtr();
 
     SIDE_LENGTH = **PCOLUMNS;
-    GAP_WIDTH   = **PGAPS;
-    BG_COLOR    = **PCOL;
 
     // process the method
     bool     methodCenter  = true;
@@ -192,16 +190,13 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_) : startedOn(startedOn
 
     // zoom on the current workspace.
     // const auto& TILE = images[std::clamp(currentid, 0, SIDE_LENGTH * SIDE_LENGTH)];
-
+    g_pAnimationManager->createAnimation(1.0f, scale, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
     g_pAnimationManager->createAnimation((-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{currentid % SIDE_LENGTH, currentid / SIDE_LENGTH}) * pMonitor->m_scale) *
                                              (pMonitor->m_size / tileSize),
                                          pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
 
+    scale->setUpdateCallback(damageMonitor);
     pos->setUpdateCallback(damageMonitor);
-
-    if (!swipe) {
-        *pos = {0, 0};
-    }
 
     openedID = currentid;
 
@@ -237,16 +232,6 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_) : startedOn(startedOn
 
     mouseButtonHook = g_pHookSystem->hookDynamic("mouseButton", onCursorSelect);
     touchDownHook   = g_pHookSystem->hookDynamic("touchDown", onCursorSelect);
-}
-
-void COverview::selectHoveredWorkspace() {
-    if (closing)
-        return;
-
-    // get tile x,y
-    int x     = lastMousePosLocal.x / pMonitor->m_size.x * SIDE_LENGTH;
-    int y     = lastMousePosLocal.y / pMonitor->m_size.y * SIDE_LENGTH;
-    closeOnID = x + y * SIDE_LENGTH;
 }
 
 void COverview::redrawID(int id, bool forcelowres) {
@@ -366,8 +351,8 @@ void COverview::close() {
 
     Vector2D    tileSize = (pMonitor->m_size / SIDE_LENGTH);
     *pos                 = (-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{ID % SIDE_LENGTH, ID / SIDE_LENGTH}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
-
-    closing = true;
+    *scale               = 1.0f;
+    closing              = true;
 
     pos->setCallbackOnEnd(removeOverview);
     redrawAll();
@@ -397,8 +382,8 @@ void COverview::close() {
 }
 
 void COverview::onPreRender() {
-    int hoveredX = ((lastMousePosLocal.x - pos->value().x) / pMonitor->m_size.x);
-    int hoveredY = ((lastMousePosLocal.y - pos->value().y) / pMonitor->m_size.y);
+    int hoveredX = (((pMonitor->m_size.x / 2) - pos->value().x / scale->value()) / pMonitor->m_size.x);
+    int hoveredY = (((pMonitor->m_size.y / 2) - pos->value().y / scale->value()) / pMonitor->m_size.y);
     hoveredID    = hoveredX + hoveredY * SIDE_LENGTH;
 
     redrawID(hoveredID, true);
@@ -434,7 +419,7 @@ void COverview::fullRender() {
         onWorkspaceChange();
     }
 
-    Vector2D tileRenderSize = pMonitor->m_size;
+    Vector2D tileRenderSize = pMonitor->m_size * scale->value();
 
     g_pHyprOpenGL->clear(BG_COLOR.stripA());
 
@@ -470,17 +455,17 @@ static Vector2D clamp(const Vector2D& val, const double min, const double max) {
 }
 
 void COverview::onSwipeUpdate(Vector2D delta) {
-    //    if (swipeWasCommenced)
-    //        return;
     static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:gesture_distance")->getDataStaticPtr();
+    static auto* const* PSCALE    = (Hyprlang::FLOAT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:zoom_scale")->getDataStaticPtr();
 
     totalSwipeDelta -= delta / **PDISTANCE;
     totalSwipeDelta = clamp(totalSwipeDelta, 0.0001, 0.9999);
 
-    const auto POSMAX = Vector2D{SIDE_LENGTH - 1, SIDE_LENGTH - 1} * pMonitor->m_size * pMonitor->m_scale;
+    const auto POSMAX = (Vector2D{SIDE_LENGTH, SIDE_LENGTH} * pMonitor->m_scale * pMonitor->m_size * scale->value()) - (pMonitor->m_size * pMonitor->m_scale);
     const auto POSMIN = Vector2D{0, 0};
 
     pos->setValueAndWarp(lerp(POSMIN, -POSMAX, totalSwipeDelta));
+    *scale = **PSCALE;
 }
 
 void COverview::onSwipeEnd() {

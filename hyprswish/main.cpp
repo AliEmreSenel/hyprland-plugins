@@ -1,3 +1,4 @@
+#include <hyprlang.hpp>
 #define WLR_USE_UNSTABLE
 
 #include <unistd.h>
@@ -68,7 +69,6 @@ static void  swipeBegin(void* self, SCallbackInfo& info, std::any param) {
 static void swipeUpdate(void* self, SCallbackInfo& info, std::any param) {
     static auto* const* PENABLE   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:enable_gesture")->getDataStaticPtr();
     static auto* const* FINGERS   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:gesture_fingers")->getDataStaticPtr();
-    static auto* const* PPOSITIVE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:gesture_positive")->getDataStaticPtr();
     static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:gesture_distance")->getDataStaticPtr();
     auto                e         = std::any_cast<IPointer::SSwipeUpdateEvent>(param);
 
@@ -80,7 +80,7 @@ static void swipeUpdate(void* self, SCallbackInfo& info, std::any param) {
 
     if (!g_pOverview) {
         renderingOverview = true;
-        g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, true);
+        g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace);
         renderingOverview = false;
         swipeActive       = true;
     } else {
@@ -160,14 +160,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     static auto P4 = HyprlandAPI::registerCallbackDynamic(PHANDLE, "swipeUpdate", [](void* self, SCallbackInfo& info, std::any data) { swipeUpdate(self, info, data); });
 
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:columns", Hyprlang::INT{3});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gap_size", Hyprlang::INT{5});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:bg_col", Hyprlang::INT{0xFF111111});
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:zoom_scale", Hyprlang::FLOAT{0.9f});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:workspace_method", Hyprlang::STRING{"center current"});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:skip_empty", Hyprlang::INT{0});
 
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:enable_gesture", Hyprlang::INT{1});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gesture_distance", Hyprlang::INT{200});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gesture_positive", Hyprlang::INT{1});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gesture_fingers", Hyprlang::INT{4});
 
     HyprlandAPI::reloadConfig();
