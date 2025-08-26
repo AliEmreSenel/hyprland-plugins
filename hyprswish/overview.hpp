@@ -18,7 +18,7 @@ class CMonitor;
 
 class COverview {
   public:
-    COverview(PHLWORKSPACE startedOn_, bool swipe = false);
+    COverview(PHLWORKSPACE startedOn_);
     ~COverview();
 
     void render();
@@ -31,7 +31,6 @@ class COverview {
 
     // close without a selection
     void          close();
-    void          selectHoveredWorkspace();
 
     bool          blockOverviewRendering = false;
     bool          blockDamageReporting   = false;
@@ -71,6 +70,7 @@ class COverview {
     PHLWORKSPACE                 startedOn;
 
     PHLANIMVAR<Vector2D>         pos;
+    PHLANIMVAR<float>            scale;
     int                          hoveredID = -1;
 
     bool                         closing = false;
@@ -79,9 +79,6 @@ class COverview {
     SP<HOOK_CALLBACK_FN>         mouseButtonHook;
     SP<HOOK_CALLBACK_FN>         touchMoveHook;
     SP<HOOK_CALLBACK_FN>         touchDownHook;
-
-    bool                         swipe             = false;
-    bool                         swipeWasCommenced = false;
 
     friend class COverviewPassElement;
 };
