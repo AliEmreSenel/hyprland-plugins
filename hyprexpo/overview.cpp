@@ -190,7 +190,7 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_, int type_) : startedO
 
     PMONITOR->m_activeSpecialWorkspace = openSpecial;
     PMONITOR->m_activeWorkspace        = startedOn;
-    startedOn->m_visible            = true;
+    startedOn->m_visible               = true;
     g_pDesktopAnimationManager->startAnimation(startedOn, CDesktopAnimationManager::ANIMATION_TYPE_IN, true, true);
 
     // zoom on the current workspace.
@@ -324,7 +324,7 @@ void COverview::redrawID(int id, bool forcelowres) {
 
     pMonitor->m_activeSpecialWorkspace = openSpecial;
     pMonitor->m_activeWorkspace        = startedOn;
-    startedOn->m_visible            = true;
+    startedOn->m_visible               = true;
     g_pDesktopAnimationManager->startAnimation(startedOn, CDesktopAnimationManager::ANIMATION_TYPE_IN, true, true);
 
     blockOverviewRendering = false;
@@ -372,6 +372,7 @@ void COverview::onDamageReported() {
 void COverview::close() {
     if (closing)
         return;
+    closing = true;
 
     const int   ID = closeOnID == -1 ? hoveredID : closeOnID;
 
@@ -383,7 +384,6 @@ void COverview::close() {
         *size = pMonitor->m_size * pMonitor->m_size / tileSize;
     else
         *scale = 1.0f;
-    closing = true;
 
     pos->setCallbackOnEnd(removeOverview);
 
@@ -464,10 +464,10 @@ void COverview::fullRender() {
             texbox.scale(pMonitor->m_scale).translate(pos->value());
             texbox.round();
             CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-            g_pHyprOpenGL->renderTextureWithDamage(images[x + y * SIDE_LENGTH].fb.getTexture(), texbox, damage, 1.0);
+            g_pHyprOpenGL->renderTexture(images[x + y * SIDE_LENGTH].fb.getTexture(), texbox, {.damage = &damage, .a = 1.0f});
             if (type == 0 && x + y * SIDE_LENGTH == hoveredID) {
                 auto zoomFactor = (pMonitor->m_size.x / (size->value().x / SIDE_LENGTH)) - 2.0;
-                g_pHyprOpenGL->renderRect(texbox, CHyprColor{1.0, 1.0, 1.0, lerp(0.0, 0.3, std::clamp(zoomFactor, 0.0, 1.0))});
+                g_pHyprOpenGL->renderRect(texbox, CHyprColor{1.0, 1.0, 1.0, lerp(0.0, 0.3, std::clamp(zoomFactor, 0.0, 1.0))}, {});
             }
         }
     }
@@ -494,23 +494,20 @@ static Vector2D clamp(const Vector2D& val, const double min, const double max) {
 }
 
 void COverview::onSwipeUpdate(Vector2D delta) {
-    //    if (swipeWasCommenced)
-    //        return;
+    m_isSwiping = true;
     if (type == 0) {
-        static auto* const* PPOSITIVE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_positive")->getDataStaticPtr();
-        totalSwipeDelta.y += (**PPOSITIVE ? 1.0 : -1.0) * delta.y;
-        if (totalSwipeDelta.y <= 0.01) // plugin will crash if swipe ends at <= 0
-            totalSwipeDelta.y = 0.01;
         static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance")->getDataStaticPtr();
+        totalSwipeDelta.y -= delta.y / (double)**PDISTANCE;
+        totalSwipeDelta.y = std::clamp(totalSwipeDelta.y, 0.00001, 0.99999);
 
-        const float         PERC = 1.0 - std::clamp(totalSwipeDelta.y / (double)**PDISTANCE, 0.0, 1.0);
+        const float PERC = 1.0 - totalSwipeDelta.y;
 
-        const auto          focusedID = fullyOpened ? hoveredID : openedID;
-        const auto          SIZEMAX   = pMonitor->m_size * SIDE_LENGTH;
-        const auto          POSMAX    = Vector2D{focusedID % SIDE_LENGTH, focusedID / SIDE_LENGTH} * pMonitor->m_size * pMonitor->m_scale;
+        const auto  focusedID = fullyOpened ? hoveredID : openedID;
+        const auto  SIZEMAX   = pMonitor->m_size * SIDE_LENGTH;
+        const auto  POSMAX    = Vector2D{focusedID % SIDE_LENGTH, focusedID / SIDE_LENGTH} * pMonitor->m_size * pMonitor->m_scale;
 
-        const auto          SIZEMIN = pMonitor->m_size;
-        const auto          POSMIN  = Vector2D{0, 0};
+        const auto  SIZEMIN = pMonitor->m_size;
+        const auto  POSMIN  = Vector2D{0, 0};
 
         size->setValueAndWarp(lerp(SIZEMIN, SIZEMAX, PERC));
         pos->setValueAndWarp(lerp(POSMIN, -POSMAX, PERC));
@@ -548,6 +545,6 @@ void COverview::onSwipeEnd() {
 
     size->setCallbackOnEnd([this](WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) { redrawAll(true); });
 
-    swipeWasCommenced = true;
-    fullyOpened       = true;
+    m_isSwiping = false;
+    fullyOpened = true;
 }

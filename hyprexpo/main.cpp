@@ -17,6 +17,7 @@ using namespace Hyprutils::String;
 #include "globals.hpp"
 #include "overview.hpp"
 #include "ExpoGesture.hpp"
+#include "SwishGesture.hpp"
 
 // Methods
 inline CFunctionHook* g_pRenderWorkspaceHook = nullptr;
@@ -67,83 +68,9 @@ static void hkAddDamageB(void* thisptr, const pixman_region32_t* rg) {
 
 static SDispatchResult onExpoDispatcher(std::string arg) {
 
-    if (g_pOverview->m_isSwiping)
+    if (g_pOverview && g_pOverview->m_isSwiping)
         return {.success = false, .error = "already swiping"};
 
-static void swipeUpdate(void* self, SCallbackInfo& info, std::any param) {
-    static auto* const* E_PENABLE   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:enable_gesture")->getDataStaticPtr();
-    static auto* const* E_FINGERS   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_fingers")->getDataStaticPtr();
-    static auto* const* E_PPOSITIVE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_positive")->getDataStaticPtr();
-
-    static auto* const* S_PENABLE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:enable_gesture")->getDataStaticPtr();
-    static auto* const* S_FINGERS = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprswish:gesture_fingers")->getDataStaticPtr();
-    auto                e         = std::any_cast<IPointer::SSwipeUpdateEvent>(param);
-
-    if (!swipeDirection) {
-        if (std::abs(e.delta.x) > std::abs(e.delta.y))
-            swipeDirection = 'h';
-        else if (std::abs(e.delta.y) > std::abs(e.delta.x))
-            swipeDirection = 'v';
-        else
-            swipeDirection = 0;
-    }
-
-    if (swipeActive || g_pOverview)
-        info.cancelled = true;
-
-    if (!**E_PENABLE && !**S_PENABLE)
-        return;
-
-    if (e.fingers != **E_FINGERS && e.fingers != **S_FINGERS)
-        return;
-
-    if (e.fingers == **E_FINGERS && swipeDirection != 'v')
-        return;
-
-    info.cancelled = true;
-    if (!swipeActive) {
-        if (e.fingers == **E_FINGERS) {
-            if (g_pOverview && (**E_PPOSITIVE ? 1.0 : -1.0) * e.delta.y <= 0) {
-                swipeActive = true;
-            }
-
-            else if (!g_pOverview && (**E_PPOSITIVE ? 1.0 : -1.0) * e.delta.y > 0) {
-                renderingOverview = true;
-                g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, true, 0);
-                renderingOverview = false;
-                gestured          = 0;
-                swipeActive       = true;
-            }
-        } else if (e.fingers == **S_FINGERS) {
-            if (!g_pOverview) {
-                renderingOverview = true;
-                g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, true, 1);
-                renderingOverview = false;
-                gestured          = 0;
-                swipeActive       = true;
-            } else {
-                swipeActive = true;
-            }
-        }
-    }
-    if (g_pOverview)
-        g_pOverview->onSwipeUpdate(e.delta);
-}
-
-static void swipeEnd(void* self, SCallbackInfo& info, std::any param) {
-    if (!g_pOverview)
-        return;
-
-    swipeActive    = false;
-    info.cancelled = true;
-
-    g_pOverview->onSwipeEnd();
-}
-
-static void onExpoDispatcher(std::string arg) {
-
-    if (swipeActive)
-        return;
     if (arg == "select") {
         if (g_pOverview) {
             g_pOverview->selectHoveredWorkspace();
@@ -156,7 +83,7 @@ static void onExpoDispatcher(std::string arg) {
             g_pOverview->close();
         else {
             renderingOverview        = true;
-            g_pOverview              = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace);
+            g_pOverview              = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, false, 0);
             g_pOverview->fullyOpened = true;
             renderingOverview        = false;
         }
@@ -173,7 +100,7 @@ static void onExpoDispatcher(std::string arg) {
         return {};
 
     renderingOverview = true;
-    g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace);
+    g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, false, 0);
     renderingOverview = false;
     return {};
 }
@@ -183,7 +110,7 @@ static void failNotif(const std::string& reason) {
 }
 
 static Hyprlang::CParseResult expoGestureKeyword(const char* LHS, const char* RHS) {
-    Hyprlang::CParseResult    result;
+    Hyprlang::CParseResult result;
 
     if (g_unloading)
         return result;
@@ -240,6 +167,8 @@ static Hyprlang::CParseResult expoGestureKeyword(const char* LHS, const char* RH
 
     if (data[startDataIdx] == "expo")
         resultFromGesture = g_pTrackpadGestures->addGesture(makeUnique<CExpoGesture>(), fingerCount, direction, modMask, deltaScale);
+    else if (data[startDataIdx] == "swish")
+        resultFromGesture = g_pTrackpadGestures->addGesture(makeUnique<CSwishGesture>(), fingerCount, direction, modMask, deltaScale);
     else if (data[startDataIdx] == "unset")
         resultFromGesture = g_pTrackpadGestures->removeGesture(fingerCount, direction, modMask, deltaScale);
     else {
@@ -316,14 +245,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance", Hyprlang::INT{200});
 
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:columns", Hyprlang::INT{3});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:zoom_scale", Hyprlang::FLOAT{0.9f});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:workspace_method", Hyprlang::STRING{"center current"});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:skip_empty", Hyprlang::INT{0});
-
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:enable_gesture", Hyprlang::INT{1});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gesture_distance", Hyprlang::INT{200});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gesture_fingers", Hyprlang::INT{4});
     HyprlandAPI::reloadConfig();
 
     return {"hyprexpo", "A plugin for an overview and swipe", "Ali Emre Senel", "2.0"};

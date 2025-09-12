@@ -36,9 +36,9 @@ class COverview {
     bool          blockOverviewRendering = false;
     bool          blockDamageReporting   = false;
     bool          fullyOpened            = false;
+    bool          m_isSwiping            = false;
 
     PHLMONITORREF pMonitor;
-    bool          m_isSwiping = false;
 
   private:
     void       redrawID(int id, bool forcelowres = false);
