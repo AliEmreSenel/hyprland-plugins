@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hyprutils/math/Vector2D.hpp>
 #define WLR_USE_UNSTABLE
 
 #include "globals.hpp"
@@ -17,7 +18,7 @@ class CMonitor;
 
 class COverview {
   public:
-    COverview(PHLWORKSPACE startedOn_, bool swipe = false);
+    COverview(PHLWORKSPACE startedOn_, bool swipe = false, int type = 0);
     ~COverview();
 
     void render();
@@ -25,7 +26,7 @@ class COverview {
     void onDamageReported();
     void onPreRender();
 
-    void onSwipeUpdate(double delta);
+    void onSwipeUpdate(Vector2D delta);
     void onSwipeEnd();
 
     // close without a selection
@@ -61,6 +62,10 @@ class COverview {
 
     Vector2D                     lastMousePosLocal = Vector2D{};
 
+    Vector2D                     totalSwipeDelta = Vector2D{0, 0};
+
+    int                          type = 0; // 0 = Expo, 1 = Swish
+
     int                          openedID  = -1;
     int                          closeOnID = -1;
 
@@ -70,6 +75,7 @@ class COverview {
 
     PHLANIMVAR<Vector2D>         size;
     PHLANIMVAR<Vector2D>         pos;
+    PHLANIMVAR<float>            scale;
     int                          hoveredID = -1;
 
     bool                         closing = false;
