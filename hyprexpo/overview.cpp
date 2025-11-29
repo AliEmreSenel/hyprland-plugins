@@ -382,12 +382,13 @@ void COverview::close() {
 
     Vector2D    tileSize = (pMonitor->m_size / SIDE_LENGTH);
     *pos                 = (-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{ID % SIDE_LENGTH, ID / SIDE_LENGTH}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
-    if (type == 0)
+    if (type == 0) {
         *size = pMonitor->m_size * pMonitor->m_size / tileSize;
-    else
+        size->setCallbackOnEnd(removeOverview);
+    } else {
         *scale = 1.0f;
-
-    pos->setCallbackOnEnd(removeOverview);
+        scale->setCallbackOnEnd(removeOverview);
+    }
 
     redrawAll();
 
