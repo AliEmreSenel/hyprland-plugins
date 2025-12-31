@@ -14,6 +14,7 @@
 #include <hyprland/src/managers/animation/DesktopAnimationManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
 #undef private
 #include "OverviewPassElement.hpp"
 
@@ -34,7 +35,7 @@ COverview::~COverview() {
 }
 
 COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_, int type_) : startedOn(startedOn_), swipe(swipe_), type(type_) {
-    const auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
+    const auto PMONITOR = Desktop::focusState()->monitor();
     pMonitor            = PMONITOR;
 
     static auto* const* PCOLUMNS = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:columns")->getDataStaticPtr();
@@ -52,7 +53,7 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_, int type_) : startedO
     int      methodStartID = pMonitor->activeWorkspaceID();
     CVarList method{*PMETHOD, 0, 's', true};
     if (method.size() < 2)
-        Debug::log(ERR, "[he] invalid workspace_method");
+        Log::logger->log(Log::ERR, "[he] invalid workspace_method");
     else {
         methodCenter  = method[0] == "center";
         methodStartID = getWorkspaceIDNameFromString(method[1]).id;

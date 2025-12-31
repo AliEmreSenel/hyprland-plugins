@@ -2,6 +2,7 @@
 
 #include "overview.hpp"
 
+#include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
 
@@ -9,7 +10,7 @@ void CSwishGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     ITrackpadGesture::begin(e);
 
     if (!g_pOverview)
-        g_pOverview = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, true, 1);
+        g_pOverview = std::make_unique<COverview>(Desktop::focusState()->monitor()->m_activeWorkspace, true, 1);
 }
 
 void CSwishGesture::update(const ITrackpadGesture::STrackpadGestureUpdate& e) {

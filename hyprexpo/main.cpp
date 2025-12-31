@@ -4,12 +4,13 @@
 #include <unistd.h>
 
 #include <hyprland/src/Compositor.hpp>
-#include <hyprland/src/desktop/Window.hpp>
+#include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/managers/input/trackpad/GestureTypes.hpp>
 #include <hyprland/src/managers/input/trackpad/TrackpadGestures.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
 
 #include <hyprutils/string/ConstVarList.hpp>
 using namespace Hyprutils::String;
@@ -83,7 +84,7 @@ static SDispatchResult onExpoDispatcher(std::string arg) {
             g_pOverview->close();
         else {
             renderingOverview        = true;
-            g_pOverview              = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, false, 0);
+            g_pOverview              = std::make_unique<COverview>(Desktop::focusState()->monitor()->m_activeWorkspace, false, 0);
             g_pOverview->fullyOpened = true;
             renderingOverview        = false;
         }
@@ -100,7 +101,7 @@ static SDispatchResult onExpoDispatcher(std::string arg) {
         return {};
 
     renderingOverview = true;
-    g_pOverview       = std::make_unique<COverview>(g_pCompositor->m_lastMonitor->m_activeWorkspace, false, 0);
+    g_pOverview       = std::make_unique<COverview>(Desktop::focusState()->monitor()->m_activeWorkspace, false, 0);
     renderingOverview = false;
     return {};
 }
