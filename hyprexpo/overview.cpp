@@ -1,8 +1,10 @@
 #include "overview.hpp"
+#include "globals.hpp"
 #include "src/plugins/PluginAPI.hpp"
 #include "src/render/OpenGL.hpp"
 #include <algorithm>
 #include <any>
+#include <cstddef>
 #include <hyprlang.hpp>
 #define private public
 #include <hyprland/src/render/Renderer.hpp>
@@ -225,7 +227,7 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_, int type_) : startedO
 
     lastMousePosLocal = g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
 
-    auto onCursorMove = [this](void* self, SCallbackInfo& info, std::any param) {
+    auto onCursorMove = [this](Event::SCallbackInfo& info) {
         if (closing)
             return;
 
@@ -233,7 +235,7 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_, int type_) : startedO
         lastMousePosLocal = g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
     };
 
-    auto onCursorSelect = [this](void* self, SCallbackInfo& info, std::any param) {
+    auto onCursorSelect = [this](Event::SCallbackInfo& info) {
         if (closing)
             return;
 
@@ -248,11 +250,11 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe_, int type_) : startedO
         close();
     };
 
-    mouseMoveHook = g_pHookSystem->hookDynamic("mouseMove", onCursorMove);
-    touchMoveHook = g_pHookSystem->hookDynamic("touchMove", onCursorMove);
+    mouseMoveHook = Event::bus()->m_events.input.mouse.move.listen([onCursorMove](Vector2D, Event::SCallbackInfo& info) { onCursorMove(info); });
+    touchMoveHook = Event::bus()->m_events.input.touch.motion.listen([onCursorMove](ITouch::SMotionEvent, Event::SCallbackInfo& info) { onCursorMove(info); });
 
-    mouseButtonHook = g_pHookSystem->hookDynamic("mouseButton", onCursorSelect);
-    touchDownHook   = g_pHookSystem->hookDynamic("touchDown", onCursorSelect);
+    mouseButtonHook = Event::bus()->m_events.input.mouse.button.listen([onCursorSelect](IPointer::SButtonEvent, Event::SCallbackInfo& info) { onCursorSelect(info); });
+    touchDownHook   = Event::bus()->m_events.input.touch.down.listen([onCursorSelect](ITouch::SDownEvent, Event::SCallbackInfo& info) { onCursorSelect(info); });
 }
 
 void COverview::selectHoveredWorkspace() {
@@ -502,7 +504,7 @@ void COverview::onSwipeUpdate(Vector2D delta) {
     if (type == 0) {
         static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance")->getDataStaticPtr();
         totalSwipeDelta.y -= delta.y / (double)**PDISTANCE;
-        totalSwipeDelta.y = std::clamp(totalSwipeDelta.y, 0.00001, 0.99999);
+        totalSwipeDelta.y = std::clamp(totalSwipeDelta.y, 0.0001, 0.9999);
 
         const float PERC = 1.0 - totalSwipeDelta.y;
 

@@ -15,9 +15,11 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
 
 void CExpoGesture::update(const ITrackpadGesture::STrackpadGestureUpdate& e) {
 
-    g_pOverview->onSwipeUpdate(e.swipe->delta);
+    if (g_pOverview)
+        g_pOverview->onSwipeUpdate(e.swipe->delta);
 }
 
 void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
-    g_pOverview->onSwipeEnd();
+    if (g_pOverview)
+        g_pOverview->onSwipeEnd();
 }

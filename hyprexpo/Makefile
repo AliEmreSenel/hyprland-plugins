@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++2b -fPIC -shared -Wno-narrowing -O3
+CXXFLAGS := -std=c++2b -fPIC -shared -Wno-narrowing -O3 -g3
 LDFLAGS := -g
 
 # Get both compiler and linker flags from pkg-config

@@ -15,9 +15,11 @@ void CSwishGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
 
 void CSwishGesture::update(const ITrackpadGesture::STrackpadGestureUpdate& e) {
 
-    g_pOverview->onSwipeUpdate(e.swipe->delta);
+    if (g_pOverview)
+        g_pOverview->onSwipeUpdate(e.swipe->delta);
 }
 
 void CSwishGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
-    g_pOverview->onSwipeEnd();
+    if (g_pOverview)
+        g_pOverview->onSwipeEnd();
 }
