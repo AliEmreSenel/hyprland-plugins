@@ -1,5 +1,8 @@
+#include "src/config/lua/types/LuaConfigValue.hpp"
 #include "src/debug/log/Logger.hpp"
+#include "src/plugins/PluginAPI.hpp"
 #include <hyprlang.hpp>
+#include <lauxlib.h>
 #define WLR_USE_UNSTABLE
 
 #include <unistd.h>
@@ -7,15 +10,28 @@
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
+#include <hyprland/src/config/shared/actions/ConfigActions.hpp>
+#include <hyprland/src/config/values/types/ColorValue.hpp>
+#include <hyprland/src/config/values/types/IntValue.hpp>
+#include <hyprland/src/config/values/types/FloatValue.hpp>
+#include <hyprland/src/config/values/types/StringValue.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/config/lua/types/LuaConfigInt.hpp>
+#include <hyprland/src/config/lua/types/LuaConfigBool.hpp>
+#include <hyprland/src/config/lua/types/LuaConfigFloat.hpp>
+#include <hyprland/src/config/lua/types/LuaConfigString.hpp>
+#include <hyprland/src/config/lua/bindings/LuaBindingsInternal.hpp>
 #include <hyprland/src/managers/input/trackpad/GestureTypes.hpp>
 #include <hyprland/src/managers/input/trackpad/TrackpadGestures.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/output/Monitor.hpp>
 #include <hyprutils/string/ConstVarList.hpp>
 using namespace Hyprutils::String;
 
+#include <lua.hpp>
 #include "globals.hpp"
 #include "overview.hpp"
 #include "ExpoGesture.hpp"
@@ -25,7 +41,7 @@ using namespace Hyprutils::String;
 inline CFunctionHook* g_pRenderWorkspaceHook = nullptr;
 inline CFunctionHook* g_pAddDamageHookA      = nullptr;
 inline CFunctionHook* g_pAddDamageHookB      = nullptr;
-typedef void (*origRenderWorkspace)(void*, PHLMONITOR, PHLWORKSPACE, timespec*, const CBox&);
+typedef void (*origRenderWorkspace)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&, const CBox&);
 typedef void (*origAddDamageA)(void*, const CBox&);
 typedef void (*origAddDamageB)(void*, const pixman_region32_t*);
 
@@ -41,7 +57,7 @@ static bool       renderingOverview = false;
 const std::string KEYWORD_EXPO_GESTURE = "hyprexpo-gesture";
 
 //
-static void hkRenderWorkspace(void* thisptr, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, timespec* now, const CBox& geometry) {
+static void hkRenderWorkspace(void* thisptr, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, const Time::steady_tp& now, const CBox& geometry) {
     if (!g_pOverview || renderingOverview || g_pOverview->blockOverviewRendering || g_pOverview->pMonitor != pMonitor)
         ((origRenderWorkspace)(g_pRenderWorkspaceHook->m_original))(thisptr, pMonitor, pWorkspace, now, geometry);
     else
@@ -49,7 +65,7 @@ static void hkRenderWorkspace(void* thisptr, PHLMONITOR pMonitor, PHLWORKSPACE p
 }
 
 static void hkAddDamageA(void* thisptr, const CBox& box) {
-    const auto PMONITOR = (CMonitor*)thisptr;
+    const auto PMONITOR = (Monitor::CMonitor*)thisptr;
 
     if (!g_pOverview || g_pOverview->pMonitor != PMONITOR->m_self || g_pOverview->blockDamageReporting) {
         ((origAddDamageA)g_pAddDamageHookA->m_original)(thisptr, box);
@@ -60,7 +76,7 @@ static void hkAddDamageA(void* thisptr, const CBox& box) {
 }
 
 static void hkAddDamageB(void* thisptr, const pixman_region32_t* rg) {
-    const auto PMONITOR = (CMonitor*)thisptr;
+    const auto PMONITOR = (Monitor::CMonitor*)thisptr;
 
     if (!g_pOverview || g_pOverview->pMonitor != PMONITOR->m_self || g_pOverview->blockDamageReporting) {
         ((origAddDamageB)g_pAddDamageHookB->m_original)(thisptr, rg);
@@ -113,87 +129,104 @@ static void failNotif(const std::string& reason) {
     HyprlandAPI::addNotification(PHANDLE, "[hyprexpo] Failure in initialization: " + reason, CHyprColor{1.0, 0.2, 0.2, 1.0}, 5000);
 }
 
-static Hyprlang::CParseResult expoGestureKeyword(const char* LHS, const char* RHS) {
-    Hyprlang::CParseResult result;
+static int luaExpo(lua_State* L) {
+    const auto RESULT = onExpoDispatcher(luaL_optstring(L, 1, "toggle"));
+    if (!RESULT.success)
+        return luaL_error(L, "%s", RESULT.error.c_str());
+    return 0;
+}
 
-    if (g_unloading)
-        return result;
-
-    CConstVarList             data(RHS);
-
-    size_t                    fingerCount = 0;
-    eTrackpadGestureDirection direction   = TRACKPAD_GESTURE_DIR_NONE;
-
-    try {
-        fingerCount = std::stoul(std::string{data[0]});
-    } catch (...) {
-        result.setError(std::format("Invalid value {} for finger count", data[0]).c_str());
-        return result;
+static bool addConfigValue(SP<Config::Values::IValue> value) {
+    const auto RET = Config::mgr()->registerPluginValue(PHANDLE, value);
+    if (!RET) {
+        Log::logger->log(Log::ERR, "[hyprexpo] failed to register plugin value \"{}\": {}", value->name(), RET.error());
+        return false;
     }
 
-    if (fingerCount <= 1 || fingerCount >= 10) {
-        result.setError(std::format("Invalid value {} for finger count", data[0]).c_str());
-        return result;
-    }
+    return true;
+}
 
-    direction = g_pTrackpadGestures->dirForString(data[1]);
+static int expoGesture(lua_State* L) {
+    if (!lua_istable(L, 1))
+        return luaL_error(L, R"(hyprexpo.gesture: expected a table, e.g. { fingers = 3, direction = "horizontal", action = "workspace" })");
 
-    if (direction == TRACKPAD_GESTURE_DIR_NONE) {
-        result.setError(std::format("Invalid direction: {}", data[1]).c_str());
-        return result;
-    }
+    Config::Lua::CLuaConfigInt fingersParser(0, 2, 9);
+    auto                       fingersErr = Config::Lua::Bindings::Internal::parseTableField(L, 1, "fingers", fingersParser);
+    if (fingersErr.errorCode != Config::Lua::PARSE_ERROR_OK)
+        return luaL_error(L, "hl.gesture: %s", fingersErr.message);
 
-    int      startDataIdx   = 2;
-    uint32_t modMask        = 0;
-    float    deltaScale     = 1.F;
-    bool     disableInhibit = false;
+    size_t                        fingerCount = fingersParser.parsed();
 
-    for (const auto arg : std::string(LHS).substr(KEYWORD_EXPO_GESTURE.size())) {
-        switch (arg) {
-            case 'p': disableInhibit = true; break;
-            default: result.setError("hyprexpo-gesture: invalid flag"); return result;
+    Config::Lua::CLuaConfigString dirParser("");
+    auto                          dirErr = Config::Lua::Bindings::Internal::parseTableField(L, 1, "direction", dirParser);
+    if (dirErr.errorCode != Config::Lua::PARSE_ERROR_OK)
+        return luaL_error(L, "hl.gesture: %s", dirErr.message.c_str());
+
+    const auto direction = g_pTrackpadGestures->dirForString(dirParser.parsed());
+    if (direction == TRACKPAD_GESTURE_DIR_NONE)
+        return luaL_error(L, "hl.gesture: invalid direction \"%s\"", dirParser.parsed().c_str());
+
+    uint32_t modMask = 0;
+    lua_getfield(L, 1, "mods");
+    if (!lua_isnil(L, -1)) {
+        Config::Lua::CLuaConfigString modsParser("");
+        auto                          modsErr = modsParser.parse(L);
+        if (modsErr.errorCode != Config::Lua::PARSE_ERROR_OK) {
+            lua_pop(L, 1);
+            return luaL_error(L, "hl.gesture: field \"mods\": %s", modsErr.message.c_str());
         }
+        modMask = g_pKeybindManager->stringToModMask(modsParser.parsed());
     }
+    lua_pop(L, 1);
 
-    while (true) {
-
-        if (data[startDataIdx].starts_with("mod:")) {
-            modMask = g_pKeybindManager->stringToModMask(std::string{data[startDataIdx].substr(4)});
-            startDataIdx++;
-            continue;
-        } else if (data[startDataIdx].starts_with("scale:")) {
-            try {
-                deltaScale = std::clamp(std::stof(std::string{data[startDataIdx].substr(6)}), 0.1F, 10.F);
-                startDataIdx++;
-                continue;
-            } catch (...) {
-                result.setError(std::format("Invalid delta scale: {}", std::string{data[startDataIdx].substr(6)}).c_str());
-                return result;
-            }
+    float deltaScale = 1.F;
+    lua_getfield(L, 1, "scale");
+    if (!lua_isnil(L, -1)) {
+        Config::Lua::CLuaConfigFloat scaleParser(1.F, 0.1F, 10.F);
+        auto                         scaleErr = scaleParser.parse(L);
+        if (scaleErr.errorCode != Config::Lua::PARSE_ERROR_OK) {
+            lua_pop(L, 1);
+            return luaL_error(L, "hl.gesture: field \"scale\": %s", scaleErr.message.c_str());
         }
-
-        break;
+        deltaScale = scaleParser.parsed();
     }
+    lua_pop(L, 1);
 
-    std::expected<void, std::string> resultFromGesture;
-
-    if (data[startDataIdx] == "expo")
-        resultFromGesture = g_pTrackpadGestures->addGesture(makeUnique<CExpoGesture>(), fingerCount, direction, modMask, deltaScale, disableInhibit);
-    else if (data[startDataIdx] == "swish")
-        resultFromGesture = g_pTrackpadGestures->addGesture(makeUnique<CSwishGesture>(), fingerCount, direction, modMask, deltaScale, disableInhibit);
-    else if (data[startDataIdx] == "unset")
-        resultFromGesture = g_pTrackpadGestures->removeGesture(fingerCount, direction, modMask, deltaScale, disableInhibit);
-    else {
-        result.setError(std::format("Invalid gesture: {}", data[startDataIdx]).c_str());
-        return result;
+    bool disableInhibit = false;
+    lua_getfield(L, 1, "disable_inhibit");
+    if (!lua_isnil(L, -1)) {
+        Config::Lua::CLuaConfigBool disableInhibitParser(false);
+        auto                        disableInhibitErr = disableInhibitParser.parse(L);
+        if (disableInhibitErr.errorCode != Config::Lua::PARSE_ERROR_OK) {
+            lua_pop(L, 1);
+            return luaL_error(L, "hl.gesture: field \"disable_inhibit\": %s", disableInhibitErr.message.c_str());
+        }
+        disableInhibit = disableInhibitParser.parsed();
     }
+    lua_pop(L, 1);
 
-    if (!resultFromGesture) {
-        result.setError(resultFromGesture.error().c_str());
-        return result;
-    }
+    std::expected<void, std::string> result;
 
-    return result;
+    Config::Lua::CLuaConfigString    actionParser("");
+    auto                             actionErr = Config::Lua::Bindings::Internal::parseTableField(L, 1, "action", actionParser);
+    if (actionErr.errorCode != Config::Lua::PARSE_ERROR_OK)
+        return luaL_error(L, "hl.gesture: %s", actionErr.message.c_str());
+
+    const auto& action = actionParser.parsed();
+
+    if (action == "expo")
+        result = g_pTrackpadGestures->addGesture(makeUnique<CExpoGesture>(), fingerCount, direction, modMask, deltaScale, disableInhibit);
+    else if (action == "swish")
+        result = g_pTrackpadGestures->addGesture(makeUnique<CSwishGesture>(), fingerCount, direction, modMask, deltaScale, disableInhibit);
+    else if (action == "unset")
+        result = g_pTrackpadGestures->removeGesture(fingerCount, direction, modMask, deltaScale, disableInhibit);
+    else
+        return luaL_error(L, "hl.gesture: unknown action \"%s\"", action.c_str());
+
+    if (!result)
+        return luaL_error(L, "hl.gesture: %s", result.error().c_str());
+
+    return 0;
 }
 
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
@@ -215,10 +248,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     g_pAddDamageHookB = HyprlandAPI::createFunctionHook(PHANDLE, FNS[0].address, (void*)hkAddDamageB);
 
-    FNS = HyprlandAPI::findFunctionsByName(PHANDLE, "_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
+    FNS = HyprlandAPI::findFunctionsByName(PHANDLE, "_ZN7Monitor8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
     if (FNS.empty()) {
-        failNotif("no fns for hook _ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
-        throw std::runtime_error("[he] No fns for hook _ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
+        failNotif("no fns for hook _ZN7Monitor8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
+        throw std::runtime_error("[he] No fns for hook _ZN7Monitor8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
     }
 
     g_pAddDamageHookA = HyprlandAPI::createFunctionHook(PHANDLE, FNS[0].address, (void*)hkAddDamageA);
@@ -240,18 +273,17 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:expo", ::onExpoDispatcher);
 
-    HyprlandAPI::addConfigKeyword(PHANDLE, KEYWORD_EXPO_GESTURE, ::expoGestureKeyword, {true});
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "expo", ::luaExpo);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", ::expoGesture);
 
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:columns", Hyprlang::INT{3});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:gap_size", Hyprlang::INT{5});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:bg_col", Hyprlang::INT{0xFF111111});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:workspace_method", Hyprlang::STRING{"center current"});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:skip_empty", Hyprlang::INT{0});
-
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance", Hyprlang::INT{200});
-
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:zoom_scale", Hyprlang::FLOAT{0.9f});
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprswish:gesture_distance", Hyprlang::INT{200});
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:columns", "columns", 3));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gap_size", "gap size", 5));
+    addConfigValue(makeShared<Config::Values::CColorValue>("plugin:hyprexpo:bg_col", "background color", 0xFF111111));
+    addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:workspace_method", "workspace method", "center current"));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:skip_empty", "skip empty workspaces", 0));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gesture_distance", "gesture distance", 200));
+    addConfigValue(makeShared<Config::Values::CFloatValue>("plugin:hyprswish:zoom_scale", "zoom scale", 0.9f));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprswish:gesture_distance", "gesture distance", 200));
     HyprlandAPI::reloadConfig();
 
     return {"hyprexpo", "A plugin for an overview and swipe", "Ali Emre Senel", "2.0"};
@@ -262,5 +294,5 @@ APICALL EXPORT void PLUGIN_EXIT() {
 
     g_unloading = true;
 
-    g_pConfigManager->reload(); // we need to reload now to clear all the gestures
+    Config::mgr()->reload(); // we need to reload now to clear all the gestures
 }

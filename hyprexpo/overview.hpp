@@ -1,11 +1,12 @@
 #pragma once
 
+#include "src/render/gl/GLFramebuffer.hpp"
 #include <hyprutils/math/Vector2D.hpp>
 #define WLR_USE_UNSTABLE
 
 #include "globals.hpp"
 #include <hyprland/src/desktop/DesktopTypes.hpp>
-#include <hyprland/src/render/Framebuffer.hpp>
+#include <hyprland/src/render/pass/FramebufferElement.hpp>
 #include <hyprland/src/helpers/AnimatedVariable.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <vector>
@@ -13,8 +14,6 @@
 // saves on resources, but is a bit broken rn with blur.
 // hyprland's fault, but cba to fix.
 constexpr bool ENABLE_LOWRES = false;
-
-class CMonitor;
 
 class COverview {
   public:
@@ -39,26 +38,25 @@ class COverview {
     bool          m_isSwiping            = false;
 
     PHLMONITORREF pMonitor;
+    struct SWorkspaceImage {
+        SP<Render::IFramebuffer> fb;
+        int64_t                  workspaceID = -1;
+        PHLWORKSPACE             pWorkspace;
+        CBox                     box;
+    };
 
   private:
-    void       redrawID(int id, bool forcelowres = false);
-    void       redrawAll(bool forcelowres = false);
-    void       redrawAllValid(bool forcelowres = false);
-    void       onWorkspaceChange();
-    void       fullRender();
+    void                         redrawID(int id, bool forcelowres = false);
+    void                         redrawAll(bool forcelowres = false);
+    void                         redrawAllValid(bool forcelowres = false);
+    void                         onWorkspaceChange();
+    void                         fullRender();
 
-    int        SIDE_LENGTH = 3;
-    int        GAP_WIDTH   = 5;
-    CHyprColor BG_COLOR    = CHyprColor{0.1, 0.1, 0.1, 1.0};
+    int                          SIDE_LENGTH = 3;
+    int                          GAP_WIDTH   = 5;
+    CHyprColor                   BG_COLOR    = CHyprColor{0.1, 0.1, 0.1, 1.0};
 
-    bool       damageDirty = false;
-
-    struct SWorkspaceImage {
-        CFramebuffer fb;
-        int64_t      workspaceID = -1;
-        PHLWORKSPACE pWorkspace;
-        CBox         box;
-    };
+    bool                         damageDirty = false;
 
     Vector2D                     lastMousePosLocal = Vector2D{};
 
