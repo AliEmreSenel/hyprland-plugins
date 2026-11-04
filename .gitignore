@@ -38,3 +38,9 @@
 result
 result-man
 hyprexpo/.cache/clangd/index
+
+# Local build directories and generated tooling
+build/
+compile_commands.json
+hyprexpo/tests/grid-test
+hyprexpo/tests/preview-test
