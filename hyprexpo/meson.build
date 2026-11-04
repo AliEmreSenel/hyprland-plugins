@@ -1,27 +1,9 @@
 project('hyprexpo', 'cpp',
   version: '0.1',
-  default_options: ['buildtype=release'],
+  default_options: ['buildtype=release', 'cpp_std=c++23'],
 )
 
-cpp_compiler = meson.get_compiler('cpp')
-if cpp_compiler.has_argument('-std=c++23')
-  add_global_arguments('-std=c++23', language: 'cpp')
-elif cpp_compiler.has_argument('-std=c++2b')
-  add_global_arguments('-std=c++2b', language: 'cpp')
-else
-  error('Could not configure current C++ compiler (' + cpp_compiler.get_id() + ' ' + cpp_compiler.version() + ') with required C++ standard (C++23)')
-endif
-
-add_project_arguments(
-  [
-    '-Wno-narrowing',
-  ],
-  language: 'cpp')
-
-globber = run_command('find', '.', '-name', '*.cpp', check: true)
-src = globber.stdout().strip().split('\n')
-
-hyprland = dependency('hyprland')
+src = files('main.cpp', 'overview.cpp', 'ExpoGesture.cpp', 'OverviewPassElement.cpp')
 
 shared_module(meson.project_name(), src,
   dependencies: [
@@ -36,3 +18,8 @@ shared_module(meson.project_name(), src,
   ],
   install: true,
 )
+
+grid_test = executable('grid-test', 'tests/grid.cpp')
+test('grid', grid_test)
+preview_test = executable('preview-test', 'tests/preview.cpp')
+test('workspace-preview', preview_test)

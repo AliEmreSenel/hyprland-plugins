@@ -1,13 +1,8 @@
 #pragma once
 
-#include <hyprland/src/managers/input/trackpad/gestures/ITrackpadGesture.hpp>
+#include "ExpoGesture.hpp"
 
-class CSwishGesture : public ITrackpadGesture {
+class CSwishGesture : public CExpoGesture {
   public:
-    CSwishGesture()          = default;
-    virtual ~CSwishGesture() = default;
-
-    virtual void begin(const ITrackpadGesture::STrackpadGestureBegin& e);
-    virtual void update(const ITrackpadGesture::STrackpadGestureUpdate& e);
-    virtual void end(const ITrackpadGesture::STrackpadGestureEnd& e);
+    CSwishGesture() : CExpoGesture(EOverviewMode::SWISH) {}
 };

@@ -1,23 +1,22 @@
 #pragma once
 
-#include "src/render/gl/GLFramebuffer.hpp"
 #include <hyprutils/math/Vector2D.hpp>
-#define WLR_USE_UNSTABLE
 
 #include "globals.hpp"
 #include <hyprland/src/desktop/DesktopTypes.hpp>
-#include <hyprland/src/render/pass/FramebufferElement.hpp>
+#include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/helpers/AnimatedVariable.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <vector>
 
-// saves on resources, but is a bit broken rn with blur.
-// hyprland's fault, but cba to fix.
-constexpr bool ENABLE_LOWRES = false;
+enum class EOverviewMode {
+    EXPO,
+    SWISH
+};
 
 class COverview {
   public:
-    COverview(PHLWORKSPACE startedOn_, bool swipe = false, int type = 0);
+    COverview(PHLWORKSPACE startedOn_, bool swipe = false, EOverviewMode mode = EOverviewMode::EXPO);
     ~COverview();
 
     void render();
@@ -26,10 +25,12 @@ class COverview {
     void onPreRender();
 
     void onSwipeUpdate(Vector2D delta);
-    void onSwipeEnd();
+    void onSwipeEnd(bool cancelled = false);
+    bool beginSwipe(EOverviewMode mode);
+    bool isFinished() const;
 
     // close without a selection
-    void          close();
+    void          close(bool keepCurrentWorkspace = false);
     void          selectHoveredWorkspace();
 
     bool          blockOverviewRendering = false;
@@ -40,17 +41,17 @@ class COverview {
     PHLMONITORREF pMonitor;
     struct SWorkspaceImage {
         SP<Render::IFramebuffer> fb;
-        int64_t                  workspaceID = -1;
+        int64_t                  workspaceID = WORKSPACE_INVALID;
         PHLWORKSPACE             pWorkspace;
-        CBox                     box;
     };
 
   private:
-    void                         redrawID(int id, bool forcelowres = false);
-    void                         redrawAll(bool forcelowres = false);
-    void                         redrawAllValid(bool forcelowres = false);
+    void                         redrawID(int id);
+    void                         redrawAll();
     void                         onWorkspaceChange();
     void                         fullRender();
+    int                          hoveredTile() const;
+    double                       gapSize() const;
 
     int                          SIDE_LENGTH = 3;
     int                          GAP_WIDTH   = 5;
@@ -62,7 +63,7 @@ class COverview {
 
     Vector2D                     totalSwipeDelta = Vector2D{0, 0};
 
-    int                          type = 0; // 0 = Expo, 1 = Swish
+    EOverviewMode                mode = EOverviewMode::EXPO;
 
     int                          openedID  = -1;
     int                          closeOnID = -1;
@@ -76,15 +77,15 @@ class COverview {
     PHLANIMVAR<float>            scale;
     int                          hoveredID = -1;
 
-    bool                         closing = false;
+    bool                         closing  = false;
+    bool                         finished = false;
 
     CHyprSignalListener          mouseMoveHook;
     CHyprSignalListener          mouseButtonHook;
     CHyprSignalListener          touchMoveHook;
     CHyprSignalListener          touchDownHook;
 
-    bool                         swipe             = false;
-    bool                         swipeWasCommenced = false;
+    bool                         swipeStartedOpen = false;
 
     friend class COverviewPassElement;
 };
