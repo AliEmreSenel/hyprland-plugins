@@ -2,28 +2,28 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include "overview.hpp"
 
-std::vector<UP<IPassElement>> COverviewPassElement::draw() {
+std::vector<UP<IPassElement>> COverviewPassElement::draw(Render::CRenderContext& ctx) {
     if (g_pOverview && g_pOverview->pMonitor)
-        g_pOverview->fullRender();
+        g_pOverview->fullRender(ctx);
     return {};
 }
 
-bool COverviewPassElement::needsLiveBlur() {
+bool COverviewPassElement::needsLiveBlur(Render::CRenderContext& ctx) {
     return false;
 }
 
-bool COverviewPassElement::needsPrecomputeBlur() {
+bool COverviewPassElement::needsPrecomputeBlur(Render::CRenderContext& ctx) {
     return false;
 }
 
-std::optional<CBox> COverviewPassElement::boundingBox() {
+std::optional<CBox> COverviewPassElement::boundingBox(Render::CRenderContext& ctx) {
     if (!g_pOverview || !g_pOverview->pMonitor)
         return std::nullopt;
 
     return CBox{{}, g_pOverview->pMonitor->m_size};
 }
 
-CRegion COverviewPassElement::opaqueRegion() {
+CRegion COverviewPassElement::opaqueRegion(Render::CRenderContext& ctx) {
     if (!g_pOverview || !g_pOverview->pMonitor)
         return CRegion{};
 

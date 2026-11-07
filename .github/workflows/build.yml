@@ -1,4 +1,4 @@
-name: Nix
+name: Build and test
 
 on: [push, pull_request, workflow_dispatch]
 
@@ -14,4 +14,13 @@ jobs:
         run: make -C hyprexpo test CXX=${{ matrix.compiler }} CXXFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
 
   build:
-    uses: ./.github/workflows/nix-build.yml
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install Hyprland and build dependencies
+        run: pacman -Syu --noconfirm --needed git hyprland pkgconf
+      - uses: actions/checkout@v4
+      - name: Build plugin
+        run: make -C hyprexpo -j2
+      - name: Run regression checks
+        run: make -C hyprexpo test

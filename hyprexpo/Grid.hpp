@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace Grid {
@@ -35,18 +36,18 @@ namespace Grid {
     }
 
     // resolve(offset) must resolve relative to the configured starting workspace.
-    template <typename Resolver>
-    std::vector<int64_t> workspaceIDs(int count, bool center, int64_t invalid, Resolver resolve) {
-        std::vector<int64_t> ids(count, invalid);
-        int                  backtracked = 0;
-        int64_t              first       = resolve(0);
+    template <typename ID, typename Resolver, typename Less = std::less<ID>>
+    std::vector<ID> workspaceIDs(int count, bool center, ID invalid, Resolver resolve, Less less = {}) {
+        std::vector<ID> ids(count, invalid);
+        int             backtracked = 0;
+        ID              first       = resolve(0);
         if (first == invalid)
             return ids;
 
         if (center) {
             for (int offset = 1; offset <= count / 2; ++offset) {
                 const auto id = resolve(-offset);
-                if (id == invalid || id >= first)
+                if (id == invalid || !less(id, first))
                     break;
                 first = id;
                 ++backtracked;
@@ -55,7 +56,7 @@ namespace Grid {
 
         for (int i = 0; i < count; ++i) {
             const auto id = resolve(i - backtracked);
-            if (id == invalid || (i > 0 && id <= ids[i - 1]))
+            if (id == invalid || (i > 0 && !less(ids[i - 1], id)))
                 break;
             ids[i] = id;
         }

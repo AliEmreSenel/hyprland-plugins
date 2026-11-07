@@ -34,9 +34,6 @@
 # Editors
 .vscode/
 
-# Nix
-result
-result-man
 hyprexpo/.cache/clangd/index
 
 # Local build directories and generated tooling

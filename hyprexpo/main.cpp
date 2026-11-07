@@ -17,6 +17,7 @@
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprutils/utils/ScopeGuard.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
+#include <hyprland/src/keybinds/Resolver.hpp>
 #include <lua.hpp>
 #include <algorithm>
 #include <string_view>
@@ -31,12 +32,12 @@
 inline CFunctionHook* g_pRenderWorkspaceHook = nullptr;
 inline CFunctionHook* g_pAddDamageHookA      = nullptr;
 inline CFunctionHook* g_pAddDamageHookB      = nullptr;
-typedef void (*origRenderWorkspace)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&, const CBox&);
+typedef void (*origRenderWorkspace)(void*, Render::CRenderContext&, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&, const CBox&);
 typedef void (*origAddDamageA)(void*, const CBox&);
 typedef void (*origAddDamageB)(void*, const pixman_region32_t*);
 
 void renderWorkspacePreview(PHLMONITOR monitor, PHLWORKSPACE workspace, const CBox& geometry) {
-    reinterpret_cast<origRenderWorkspace>(g_pRenderWorkspaceHook->m_original)(g_pHyprRenderer.get(), monitor, workspace, Time::steadyNow(), geometry);
+    reinterpret_cast<origRenderWorkspace>(g_pRenderWorkspaceHook->m_original)(g_pHyprRenderer.get(), g_pHyprRenderer->context(), monitor, workspace, Time::steadyNow(), geometry);
 }
 
 static bool g_unloading = false;
@@ -50,11 +51,11 @@ static bool                renderingOverview = false;
 static CHyprSignalListener preRenderListener, monitorRemovedListener, configReloadListener;
 
 //
-static void hkRenderWorkspace(void* thisptr, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, const Time::steady_tp& now, const CBox& geometry) {
+static void hkRenderWorkspace(void* thisptr, Render::CRenderContext& ctx, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, const Time::steady_tp& now, const CBox& geometry) {
     if (!g_pOverview || renderingOverview || g_pOverview->blockOverviewRendering || g_pOverview->pMonitor != pMonitor)
-        ((origRenderWorkspace)(g_pRenderWorkspaceHook->m_original))(thisptr, pMonitor, pWorkspace, now, geometry);
+        ((origRenderWorkspace)(g_pRenderWorkspaceHook->m_original))(thisptr, ctx, pMonitor, pWorkspace, now, geometry);
     else
-        g_pOverview->render();
+        g_pOverview->render(ctx);
 }
 
 static void hkAddDamageA(void* thisptr, const CBox& box) {
@@ -114,7 +115,7 @@ static void clearOverview() {
     // clearGestures() does not release Hyprland's active gesture. End ours before unloading its vtable.
     if (CExpoGesture::isActive())
         g_pTrackpadGestures->gestureEnd(IPointer::SSwipeEndEvent{.cancelled = true});
-    g_pHyprRenderer->m_renderPass.removeAllOfType("COverviewPassElement");
+    g_pHyprRenderer->context().m_pass.removeAllOfType("COverviewPassElement");
     if (g_pOverview)
         g_pOverview->damage();
     g_pOverview.reset();
@@ -134,7 +135,7 @@ static int luaExpo(lua_State* L) {
 static void addConfigValue(SP<Config::Values::IValue> value) {
     const auto RET = Config::mgr()->registerPluginValue(PHANDLE, value);
     if (!RET) {
-        Log::logger->log(Log::ERR, "[hyprexpo] failed to register plugin value \"{}\": {}", value->name(), RET.error());
+        LOG(Log::ERR, "[hyprexpo] failed to register plugin value \"{}\": {}", value->name(), RET.error());
         throw std::runtime_error("[hyprexpo] Failed to register configuration");
     }
 }
@@ -161,7 +162,7 @@ static int expoGesture(lua_State* L) {
     if (direction == TRACKPAD_GESTURE_DIR_NONE)
         return luaL_error(L, "hyprexpo.gesture: invalid direction \"%s\"", dirParser.parsed().c_str());
 
-    uint32_t modMask = 0;
+    Input::ModifierMask modMask{Input::eKeyboardModifiers::HL_MODIFIER_NONE};
     lua_getfield(L, 1, "mods");
     if (!lua_isnil(L, -1)) {
         Config::Lua::CLuaConfigString modsParser("");
@@ -170,7 +171,7 @@ static int expoGesture(lua_State* L) {
             lua_pop(L, 1);
             return luaL_error(L, "hyprexpo.gesture: field \"mods\": %s", modsErr.message.c_str());
         }
-        modMask = g_pKeybindManager->stringToModMask(modsParser.parsed());
+        modMask = Keybinds::modMaskFromString(modsParser.parsed());
     }
     lua_pop(L, 1);
 
@@ -249,7 +250,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         throw std::runtime_error("[hyprexpo] Hyprland version mismatch");
     }
 
-    g_pRenderWorkspaceHook = createHook("renderWorkspace", "Render::IHyprRenderer::renderWorkspace(", reinterpret_cast<void*>(hkRenderWorkspace));
+    g_pRenderWorkspaceHook = createHook("renderWorkspace", "Render::IHyprRenderer::renderWorkspace(Render::CRenderContext&, Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>,",
+                                        reinterpret_cast<void*>(hkRenderWorkspace));
     g_pAddDamageHookA      = createHook("addDamage", "Monitor::CMonitor::addDamage(Hyprutils::Math::CBox const&)", reinterpret_cast<void*>(hkAddDamageA));
     g_pAddDamageHookB      = createHook("addDamage", "Monitor::CMonitor::addDamage(pixman_region32 const*)", reinterpret_cast<void*>(hkAddDamageB));
 

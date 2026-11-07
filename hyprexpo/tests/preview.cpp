@@ -26,7 +26,21 @@ struct SAnimation {
 };
 
 struct SMonitor;
+enum class EWorkspaceType {
+    NORMAL,
+    SPECIAL
+};
+
 struct SWorkspace {
+    EWorkspaceType type() const {
+        return m_isSpecialWorkspace ? EWorkspaceType::SPECIAL : EWorkspaceType::NORMAL;
+    }
+    bool visible() const {
+        return m_visible;
+    }
+    void setVisible(bool value) {
+        m_visible = value;
+    }
     SMonitor*                                          m_monitor;
     bool                                               m_visible            = false;
     bool                                               m_isSpecialWorkspace = false;

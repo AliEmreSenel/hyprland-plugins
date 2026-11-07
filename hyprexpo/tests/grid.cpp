@@ -4,6 +4,7 @@
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <string>
 
 static void check(bool condition, std::string_view message) {
     if (!condition) {
@@ -55,5 +56,10 @@ int main() {
           "centering near the first workspace must stop backtracking on wrap");
     auto failure = [=](int) { return invalid; };
     check(Grid::workspaceIDs(4, true, invalid, failure) == std::vector<int64_t>(4, invalid), "invalid selectors must leave safe placeholder tiles");
+    auto address      = [](int offset) { return std::to_string(9 + offset); };
+    auto numericOrder = [](const std::string& a, const std::string& b) { return std::stoi(a) < std::stoi(b); };
+    check(Grid::workspaceIDs(4, false, std::string{}, address, numericOrder) == std::vector<std::string>({"9", "10", "11", "12"}),
+          "workspace addresses must retain numeric ordering across digit boundaries");
+    check(Grid::workspaceIDs(3, true, std::string{}, address, numericOrder) == std::vector<std::string>({"8", "9", "10"}), "centering must use the workspace address comparator");
     std::cout << "Grid regression checks passed\n";
 }

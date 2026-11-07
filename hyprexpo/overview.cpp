@@ -11,6 +11,7 @@
 #include <hyprland/src/config/shared/animation/AnimationTree.hpp>
 #include <hyprland/src/state/WorkspaceState.hpp>
 #include <hyprland/src/state/WorkspaceQuery.hpp>
+#include <hyprland/src/state/workspace/Resolver.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 #include <hyprland/src/helpers/Format.hpp>
 #include <hyprland/src/helpers/MiscFunctions.hpp>
@@ -81,45 +82,61 @@ COverview::COverview(PHLWORKSPACE startedOn_, bool swipe, EOverviewMode mode_) :
     GAP_WIDTH         = static_cast<int>(std::clamp<double>(*PGAPS, 0, MAXGAP));
     BG_COLOR          = CHyprColor(*PCOL);
 
-    bool           methodCenter  = true;
-    auto           methodStartID = pMonitor->activeWorkspaceID();
+    bool           methodCenter       = true;
+    std::string    methodStartAddress = pMonitor->m_activeWorkspace->addressableName();
     const CVarList method{*PMETHOD, 0, 's', true};
     if (method.size() != 2 || (method[0] != "center" && method[0] != "first"))
-        Log::logger->log(Log::ERR, "[hyprexpo] invalid workspace_method, using center current");
+        LOG(Log::ERR, "[hyprexpo] invalid workspace_method, using center current");
     else {
-        methodCenter  = method[0] == "center";
-        const auto id = getWorkspaceIDNameFromString(method[1]).id;
-        if (id != WORKSPACE_INVALID && !State::workspaceState()->isSpecial(id))
-            methodStartID = id;
+        methodCenter      = method[0] == "center";
+        const auto target = State::Workspace::resolver()->getWorkspaceTargetFromString(method[1], PMONITOR);
+        if (target.valid() && target.type == Workspace::eWorkspaceType::NORMAL)
+            methodStartAddress = target.address;
     }
 
     images.resize(SIDE_LENGTH * SIDE_LENGTH);
     const std::string selector    = *PSKIP ? "m" : "r";
-    auto              anchor      = State::workspaceState()->query().id(methodStartID).run();
+    auto              anchor      = State::workspaceState()->query().address(methodStartAddress).run();
     const auto        localAnchor = Preview::localAnchor(anchor, startedOn, PMONITOR);
     if (localAnchor != anchor) {
-        anchor        = localAnchor;
-        methodStartID = anchor->m_id;
+        anchor             = localAnchor;
+        methodStartAddress = anchor->addressableName();
     }
-    if (!anchor)
-        anchor = CWorkspace::create(methodStartID, PMONITOR, std::to_string(methodStartID));
+    if (!anchor) {
+        anchor = State::workspaceState()->create(State::Workspace::resolver()->getWorkspaceTargetFromString(methodStartAddress, PMONITOR), PMONITOR);
+        if (!anchor) {
+            finished = true;
+            return;
+        }
+        anchor->ready();
+    }
 
     // Hyprland's relative selectors use the focused monitor's active workspace.
-    const auto ids = [&] {
+    const auto addresses = [&] {
         const auto                    savedWorkspace = PMONITOR->m_activeWorkspace;
         Hyprutils::Utils::CScopeGuard restore([&] { PMONITOR->m_activeWorkspace = savedWorkspace; });
         PMONITOR->m_activeWorkspace = anchor;
-        return Grid::workspaceIDs(images.size(), methodCenter, WORKSPACE_INVALID, [&](int offset) -> int64_t {
-            if (offset == 0)
-                return methodStartID;
-            return getWorkspaceIDNameFromString(selector + (offset > 0 ? "+" : "") + std::to_string(offset)).id;
-        });
+        return Grid::workspaceIDs(
+            images.size(), methodCenter, std::string{},
+            [&](int offset) -> std::string {
+                if (offset == 0)
+                    return methodStartAddress;
+                const auto target = State::Workspace::resolver()->getWorkspaceTargetFromString(selector + (offset > 0 ? "+" : "") + std::to_string(offset), PMONITOR);
+                return target.valid() && target.type == Workspace::eWorkspaceType::NORMAL ? target.address : std::string{};
+            },
+            [&](const std::string& a, const std::string& b) {
+                const auto left  = State::Workspace::resolver()->getWorkspaceTargetFromString(a, PMONITOR);
+                const auto right = State::Workspace::resolver()->getWorkspaceTargetFromString(b, PMONITOR);
+                const auto l     = left.id ? std::get_if<Workspace::SWorkspaceNumberedID>(&*left.id) : nullptr;
+                const auto r     = right.id ? std::get_if<Workspace::SWorkspaceNumberedID>(&*right.id) : nullptr;
+                return l && r ? l->value < r->value : a < b;
+            });
     }();
 
     int currentid = 0;
     for (size_t i = 0; i < images.size(); ++i) {
-        images[i].workspaceID = ids[i];
-        if (ids[i] == startedOn->m_id)
+        images[i].workspaceAddress = addresses[i];
+        if (addresses[i] == startedOn->addressableName())
             currentid = i;
     }
     openedID = currentid;
@@ -236,11 +253,11 @@ void COverview::redrawID(int id) {
 
     auto&      image = images[id];
 
-    image.pWorkspace = image.workspaceID == WORKSPACE_INVALID ? nullptr : State::workspaceState()->query().id(image.workspaceID).run();
+    image.pWorkspace = image.workspaceAddress.empty() ? nullptr : State::workspaceState()->query().address(image.workspaceAddress).run();
     if (!Preview::canRender(image.pWorkspace, pMonitor.lock())) {
         // The workspace may have moved to another monitor since the grid was built.
         image.pWorkspace.reset();
-        image.workspaceID = WORKSPACE_INVALID;
+        image.workspaceAddress.clear();
     }
 
     if (!ensureFramebuffer(image, monbox, framebufferFormatWithAlpha(pMonitor->m_output->state->state().drmFormat))) {
@@ -249,7 +266,7 @@ void COverview::redrawID(int id) {
         return;
     }
 
-    Preview::CWorkspacePreviewState previewState(image.pWorkspace, pMonitor.lock(), g_pHyprRenderer->m_bBlockSurfaceFeedback);
+    Preview::CWorkspacePreviewState previewState(image.pWorkspace, pMonitor.lock(), g_pHyprRenderer->context().m_blockSurfaceFeedback);
     if (!previewState) {
         finished = true;
         damage();
@@ -263,11 +280,13 @@ void COverview::redrawID(int id) {
         return;
     }
 
+    // Beginning a render session resets context flags. Suppress feedback for thumbnails.
+    g_pHyprRenderer->context().m_blockSurfaceFeedback = true;
     clearWithColor(CHyprColor{0, 0, 0, 1.0});
 
     renderWorkspacePreview(pMonitor.lock(), image.pWorkspace, monbox);
 
-    g_pHyprRenderer->m_renderData.blockScreenShader = true;
+    g_pHyprRenderer->context().m_data.blockScreenShader = true;
     g_pHyprRenderer->endRender();
 }
 
@@ -317,26 +336,26 @@ void COverview::close(bool keepCurrentWorkspace) {
     redrawAll();
     damage();
 
-    if (!keepCurrentWorkspace && closeOnID >= 0 && TILE.workspaceID != pMonitor->activeWorkspaceID()) {
+    if (!keepCurrentWorkspace && closeOnID >= 0 && TILE.workspaceAddress != pMonitor->m_activeWorkspace->addressableName()) {
         const auto focusResult = Config::Actions::focusMonitor(pMonitor.lock());
         if (!focusResult)
             return;
 
-        // If this tile's workspace was WORKSPACE_INVALID, move to the next
+        // If this tile has no workspace address, move to the next
         // empty workspace. This should only happen if skip_empty is on, in
-        // which case some tiles will be left with this ID intentionally.
-        const auto NEWID = TILE.workspaceID == WORKSPACE_INVALID ? getWorkspaceIDNameFromString("emptynm").id : TILE.workspaceID;
+        // which case some tiles intentionally have no address.
+        const auto NEWID = TILE.workspaceAddress.empty() ? State::Workspace::resolver()->getWorkspaceTargetFromString("emptynm", pMonitor.lock()).address : TILE.workspaceAddress;
 
-        const auto NEWIDWS = State::workspaceState()->query().id(NEWID).run();
+        const auto NEWIDWS = State::workspaceState()->query().address(NEWID).run();
 
         const auto OLDWS = pMonitor->m_activeWorkspace;
 
-        if (NEWID == WORKSPACE_INVALID || !Preview::canRender(NEWIDWS, pMonitor.lock()))
+        if (NEWID.empty() || !Preview::canRender(NEWIDWS, pMonitor.lock()))
             return;
-        pMonitor->setSpecialWorkspace(0);
-        const auto result = NEWIDWS ? Config::Actions::changeWorkspace(NEWIDWS) : Config::Actions::changeWorkspace(std::to_string(NEWID));
+        pMonitor->setSpecialWorkspace(nullptr);
+        const auto result = NEWIDWS ? Config::Actions::changeWorkspace(NEWIDWS) : Config::Actions::changeWorkspace(NEWID);
         if (!result) {
-            Log::logger->log(Log::ERR, "[hyprexpo] workspace change failed: {}", result.error().message);
+            LOG(Log::ERR, "[hyprexpo] workspace change failed: {}", result.error().message);
             return;
         }
 
@@ -371,7 +390,7 @@ void COverview::onPreRender() {
 void COverview::onWorkspaceChange() {
     startedOn = pMonitor->m_activeWorkspace;
     for (size_t i = 0; i < images.size(); ++i) {
-        if (images[i].workspaceID == pMonitor->activeWorkspaceID()) {
+        if (images[i].workspaceAddress == pMonitor->m_activeWorkspace->addressableName()) {
             openedID = i;
             break;
         }
@@ -380,11 +399,11 @@ void COverview::onWorkspaceChange() {
     close(true);
 }
 
-void COverview::render() {
-    g_pHyprRenderer->m_renderPass.add(makeUnique<COverviewPassElement>());
+void COverview::render(Render::CRenderContext& ctx) {
+    g_pHyprRenderer->addPassElement(ctx, makeUnique<COverviewPassElement>());
 }
 
-void COverview::fullRender() {
+void COverview::fullRender(Render::CRenderContext& ctx) {
     if (!pMonitor)
         return;
     const auto GAPSIZE = gapSize();
@@ -401,10 +420,10 @@ void COverview::fullRender() {
             CRegion     damage{0, 0, INT16_MAX, INT16_MAX};
             const auto& fb = images[x + y * SIDE_LENGTH].fb;
             if (fb && fb->isAllocated())
-                Render::GL::g_pHyprOpenGL->renderTexture(fb->getTexture(), texbox, {.damage = &damage, .a = 1.0f});
+                Render::GL::g_pHyprOpenGL->renderTexture(ctx, fb->getTexture(), texbox, {.damage = &damage, .a = 1.0f});
             if (mode == EOverviewMode::EXPO && x + y * SIDE_LENGTH == hoveredID) {
                 auto zoomFactor = (pMonitor->m_size.x / (size->value().x / SIDE_LENGTH)) - 2.0;
-                Render::GL::g_pHyprOpenGL->renderRect(texbox, CHyprColor{1.0, 1.0, 1.0, static_cast<float>(0.3 * std::clamp(zoomFactor, 0.0, 1.0))}, {});
+                Render::GL::g_pHyprOpenGL->renderRect(ctx, texbox, CHyprColor{1.0, 1.0, 1.0, static_cast<float>(0.3 * std::clamp(zoomFactor, 0.0, 1.0))}, {});
             }
         }
     }

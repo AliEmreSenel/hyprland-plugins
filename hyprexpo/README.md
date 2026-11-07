@@ -6,28 +6,12 @@ HyprExpo provides a workspace overview and a two-dimensional workspace swipe (Sw
 
 ## Build
 
-Build against the headers and dependencies of the **running Hyprland version**. This code targets Hyprland 0.56.2; plugin initialization checks the Hyprland commit to prevent incompatible hooks.
+Build against the headers and dependencies of the **running Hyprland version**. This code targets Hyprland 0.57.1; plugin initialization checks the Hyprland commit to prevent incompatible hooks.
 
 ```sh
 make -C hyprexpo
 make -C hyprexpo test
 ```
-
-CMake and Meson are also supported:
-
-```sh
-cmake -S hyprexpo -B build -DBUILD_TESTING=ON
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-```sh
-meson setup build hyprexpo
-meson compile -C build
-meson test -C build --print-errorlogs
-```
-
-Use separate build directories when trying both CMake and Meson. CMake generates a compilation database in its build directory; Meson provides one too. With Nix, `nix build .#hyprexpo` builds against the pinned Hyprland input and `nix flake check` builds and tests the package. Override that input to match your compositor when integrating the flake into an existing configuration.
 
 ## Configuration
 

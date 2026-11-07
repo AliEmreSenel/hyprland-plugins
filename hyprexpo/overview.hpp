@@ -9,6 +9,10 @@
 #include <hyprland/src/event/EventBus.hpp>
 #include <vector>
 
+namespace Render {
+    class CRenderContext;
+}
+
 enum class EOverviewMode {
     EXPO,
     SWISH
@@ -19,7 +23,7 @@ class COverview {
     COverview(PHLWORKSPACE startedOn_, bool swipe = false, EOverviewMode mode = EOverviewMode::EXPO);
     ~COverview();
 
-    void render();
+    void render(Render::CRenderContext& ctx);
     void damage();
     void onDamageReported();
     void onPreRender();
@@ -41,7 +45,7 @@ class COverview {
     PHLMONITORREF pMonitor;
     struct SWorkspaceImage {
         SP<Render::IFramebuffer> fb;
-        int64_t                  workspaceID = WORKSPACE_INVALID;
+        std::string              workspaceAddress;
         PHLWORKSPACE             pWorkspace;
     };
 
@@ -49,7 +53,7 @@ class COverview {
     void                         redrawID(int id);
     void                         redrawAll();
     void                         onWorkspaceChange();
-    void                         fullRender();
+    void                         fullRender(Render::CRenderContext& ctx);
     int                          hoveredTile() const;
     double                       gapSize() const;
 

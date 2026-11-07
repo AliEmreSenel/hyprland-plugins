@@ -6,7 +6,7 @@
 namespace Preview {
     template <typename Workspace, typename Monitor>
     bool canRender(const Workspace& workspace, const Monitor& monitor) {
-        return monitor && (!workspace || (workspace->m_monitor == monitor && !workspace->m_isSpecialWorkspace));
+        return monitor && (!workspace || (workspace->m_monitor == monitor && workspace->type() == decltype(workspace->type())::NORMAL));
     }
 
     template <typename Workspace, typename Monitor>
@@ -29,9 +29,9 @@ namespace Preview {
                 return;
             m_special          = m_monitor->m_activeSpecialWorkspace;
             m_wasBlocking      = m_blockFeedback;
-            m_activeWasVisible = m_active && m_active->m_visible;
+            m_activeWasVisible = m_active && m_active->visible();
             if (m_workspace) {
-                m_wasVisible = m_workspace->m_visible;
+                m_wasVisible = m_workspace->visible();
                 m_alpha      = m_workspace->m_alpha->value();
                 m_offset     = m_workspace->m_renderOffset->value();
             }
@@ -39,12 +39,12 @@ namespace Preview {
             m_valid         = true;
             m_blockFeedback = true;
             if (m_active)
-                m_active->m_visible = false;
+                m_active->setVisible(false);
             if (m_workspace != m_active)
                 m_monitor->m_activeSpecialWorkspace.reset();
             if (m_workspace) {
-                m_monitor->m_activeWorkspace         = m_workspace;
-                m_workspace->m_visible               = true;
+                m_monitor->m_activeWorkspace = m_workspace;
+                m_workspace->setVisible(true);
                 m_workspace->m_alpha->value()        = 1.F;
                 m_workspace->m_renderOffset->value() = {};
             }
@@ -56,10 +56,10 @@ namespace Preview {
             if (m_workspace) {
                 m_workspace->m_alpha->value()        = m_alpha;
                 m_workspace->m_renderOffset->value() = m_offset;
-                m_workspace->m_visible               = m_wasVisible;
+                m_workspace->setVisible(m_wasVisible);
             }
             if (m_active)
-                m_active->m_visible = m_activeWasVisible;
+                m_active->setVisible(m_activeWasVisible);
             m_monitor->m_activeWorkspace        = m_active;
             m_monitor->m_activeSpecialWorkspace = m_special;
             m_blockFeedback                     = m_wasBlocking;
