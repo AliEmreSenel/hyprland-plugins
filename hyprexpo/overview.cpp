@@ -266,6 +266,8 @@ void COverview::redrawID(int id) {
         return;
     }
 
+    image.fb->setImageDescription(pMonitor->workBufferImageDescription());
+
     Preview::CWorkspacePreviewState previewState(image.pWorkspace, pMonitor.lock(), g_pHyprRenderer->context().m_blockSurfaceFeedback);
     if (!previewState) {
         finished = true;

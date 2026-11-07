@@ -15,9 +15,11 @@ make -C hyprexpo test
 
 ## Configuration
 
-The plugin exposes Lua functions under `hl.plugin.hyprexpo`. After loading the plugin, add the following to your Hyprland Lua configuration. Guard plugin configuration so the file also works before the plugin is loaded and after it is unloaded.
+The plugin exposes Lua functions under `hl.plugin.hyprexpo`. Register its absolute path with `hl.plugin.load` in your Hyprland Lua configuration. Hyprland loads registered plugins after parsing and then reloads the configuration to apply their settings. Guard plugin configuration so the file also works before the plugin is loaded and after it is unloaded.
 
 ```lua
+hl.plugin.load("/absolute/path/to/hyprexpo.so")
+
 if hl.plugin.hyprexpo then
     hl.config({
         plugin = {
@@ -62,7 +64,7 @@ Workspaces belong to a single monitor. If an explicit `first` or `center` anchor
 
 ## Actions and gestures
 
-`hl.plugin.hyprexpo.expo()` defaults to `"toggle"`. The `hyprexpo:expo` dispatcher accepts the same actions:
+`hl.plugin.hyprexpo.expo()` defaults to `"toggle"`. It accepts these actions:
 
 | Action | Behavior |
 | --- | --- |

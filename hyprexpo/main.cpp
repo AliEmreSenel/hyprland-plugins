@@ -133,9 +133,8 @@ static int luaExpo(lua_State* L) {
 }
 
 static void addConfigValue(SP<Config::Values::IValue> value) {
-    const auto RET = Config::mgr()->registerPluginValue(PHANDLE, value);
-    if (!RET) {
-        LOG(Log::ERR, "[hyprexpo] failed to register plugin value \"{}\": {}", value->name(), RET.error());
+    if (!HyprlandAPI::addConfigValueV2(PHANDLE, value)) {
+        LOG(Log::ERR, "[hyprexpo] failed to register plugin value {}", value->name());
         throw std::runtime_error("[hyprexpo] Failed to register configuration");
     }
 }
@@ -280,8 +279,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     });
     configReloadListener   = Event::bus()->m_events.config.preReload.listen([] { clearOverview(); });
 
-    if (!HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:expo", ::onExpoDispatcher) || !HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "expo", ::luaExpo) ||
-        !HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", ::expoGesture))
+    if (!HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "expo", ::luaExpo) || !HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", ::expoGesture))
         throw std::runtime_error("[hyprexpo] Failed to register plugin functions");
 
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:columns", "columns", 3, Config::Values::SIntValueOptions{.min = 1, .max = Grid::MAX_COLUMNS}));
